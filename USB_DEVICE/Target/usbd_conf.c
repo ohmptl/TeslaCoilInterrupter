@@ -24,7 +24,7 @@
 #include "usbd_def.h"
 #include "usbd_core.h"
 
-#include "usbd_audio.h"
+#include "usbd_composite.h"
 
 /* USER CODE BEGIN Includes */
 
@@ -362,9 +362,17 @@ USBD_StatusTypeDef USBD_LL_Init(USBD_HandleTypeDef *pdev)
   HAL_PCD_RegisterIsoOutIncpltCallback(&hpcd_USB_OTG_FS, PCD_ISOOUTIncompleteCallback);
   HAL_PCD_RegisterIsoInIncpltCallback(&hpcd_USB_OTG_FS, PCD_ISOINIncompleteCallback);
 #endif /* USE_HAL_PCD_REGISTER_CALLBACKS */
-  HAL_PCDEx_SetRxFiFo(&hpcd_USB_OTG_FS, 0x80);
-  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_FS, 0, 0x40);
-  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_FS, 1, 0x80);
+  /* FIFO allocation for Composite CDC+MIDI (total 320 x 4 = 1280 bytes) */
+  /*   RX shared:  128 words (512 bytes) - covers all OUT endpoints     */
+  /*   TX EP0:      32 words (128 bytes) - control EP                   */
+  /*   TX EP1:      64 words (256 bytes) - CDC Data IN                  */
+  /*   TX EP2:      16 words ( 64 bytes) - CDC Notification IN          */
+  /*   TX EP3:      64 words (256 bytes) - MIDI Data IN                 */
+  HAL_PCDEx_SetRxFiFo(&hpcd_USB_OTG_FS, 0x80);   /* 128 words */
+  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_FS, 0, 0x20); /* EP0: 32 words */
+  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_FS, 1, 0x40); /* EP1: 64 words (CDC Data) */
+  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_FS, 2, 0x10); /* EP2: 16 words (CDC Notify) */
+  HAL_PCDEx_SetTxFiFo(&hpcd_USB_OTG_FS, 3, 0x40); /* EP3: 64 words (MIDI) */
   }
   return USBD_OK;
 }
@@ -624,7 +632,10 @@ USBD_StatusTypeDef USBD_LL_SetTestMode(USBD_HandleTypeDef *pdev, uint8_t testmod
   */
 void *USBD_static_malloc(uint32_t size)
 {
-  static uint32_t mem[(sizeof(USBD_AUDIO_HandleTypeDef)/4)+1];/* On 32-bit boundary */
+  /* Composite class handle is allocated statically inside usbd_composite.c,
+   * so this malloc is only used for pClassDataCmsit fallback.  Provide a
+   * generously-sized buffer just in case. */
+  static uint32_t mem[(sizeof(USBD_Composite_HandleTypeDef)/4)+1];/* On 32-bit boundary */
   return mem;
 }
 

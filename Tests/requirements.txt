@@ -1,0 +1,5 @@
+# TC-Interrupter Test Suite Dependencies
+# Install: pip install -r requirements.txt
+pyserial>=3.5
+mido>=1.3.0
+python-rtmidi>=1.5.0

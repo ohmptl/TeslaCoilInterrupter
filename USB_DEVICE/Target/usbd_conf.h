@@ -63,7 +63,7 @@
   */
 
 /*---------- -----------*/
-#define USBD_MAX_NUM_INTERFACES     1U
+#define USBD_MAX_NUM_INTERFACES     4U
 /*---------- -----------*/
 #define USBD_MAX_NUM_CONFIGURATION     1U
 /*---------- -----------*/
@@ -74,8 +74,7 @@
 #define USBD_LPM_ENABLED     0U
 /*---------- -----------*/
 #define USBD_SELF_POWERED     1U
-/*---------- -----------*/
-#define USBD_AUDIO_FREQ     22100U
+/* USBD_AUDIO_FREQ removed — not using Audio class, using Composite CDC+MIDI */
 
 /****************************************/
 /* #define for FS and HS identification */

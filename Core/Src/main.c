@@ -27,7 +27,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "debug_uart.h"
+#include "cdc_parser.h"
+#include "usbd_composite.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,7 +50,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+extern USBD_HandleTypeDef hUsbDeviceFS;
+static uint32_t last_heartbeat_tick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,7 +106,11 @@ int main(void)
   MX_SPI2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  Debug_Init();
+  Debug_Log("System booting...");
+  CDC_Parser_Init();
+  Debug_Log("USB Composite (CDC+MIDI) initialized");
+  Debug_Log("Entering main loop");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -113,9 +120,27 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    HAL_GPIO_TogglePin(STATUS_LED_GPIO_Port, STATUS_LED_Pin);
+
+    /* ------ CDC Command Processing (HIGHEST PRIORITY in main loop) ------ */
+    /* Process CDC commands BEFORE MIDI to guarantee control is never starved */
+    CDC_Parser_Process(&hUsbDeviceFS);
+
+    /* ------ CDC TX Flush ------ */
+    USBD_Composite_CDC_TxFlush(&hUsbDeviceFS);
+
+    /* ------ Debug UART Flush ------ */
+    Debug_Flush();
+
+    /* ------ Heartbeat LED (200 ms toggle) ------ */
+    uint32_t now = HAL_GetTick();
+    if ((now - last_heartbeat_tick) >= 500U)
+    {
+      last_heartbeat_tick = now;
+      HAL_GPIO_TogglePin(STATUS_LED_GPIO_Port, STATUS_LED_Pin);
+    }
+
+    /* ------ Watchdog Feed ------ */
     HAL_IWDG_Refresh(&hiwdg);
-    HAL_Delay(200);
   }
   /* USER CODE END 3 */
 }
