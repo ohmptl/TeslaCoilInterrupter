@@ -22,6 +22,9 @@
 #include "stm32f4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "scheduler.h"
+#include "safety.h"
+#include "coil_driver.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -321,5 +324,37 @@ void OTG_FS_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+/**
+ * @brief  EXTI callback — handles E-Stop button press/release.
+ *         EXTI1 is priority 0 (absolute highest).
+ */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == ESTOP_BUTTON_Pin)
+  {
+    /* Pull-up: pin LOW = pressed (grounded), pin HIGH = released */
+    uint8_t pressed = (HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port,
+                                        ESTOP_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
+    Safety_EStopSet(pressed);
+    if (pressed)
+    {
+      /* Immediately kill all OPM timers — sub-microsecond response */
+      CoilDriver_StopAll();
+    }
+  }
+}
+
+/**
+ * @brief  Timer period elapsed callback — dispatches TIM7 scheduler tick.
+ *         TIM7 is at priority 2; cannot preempt E-Stop (pri 0) or OPM (pri 1).
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM7)
+  {
+    Scheduler_Tick();
+  }
+}
 
 /* USER CODE END 1 */

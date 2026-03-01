@@ -19,6 +19,16 @@
   *   ESTOP?        -> "ESTOP=0\r\n" or "ESTOP=1\r\n"
   *   STATUS        -> JSON-like status string
   *   ECHO <text>   -> "<text>\r\n"
+  *
+  * Supported commands (Milestone 2):
+  *   FIRE <coil> <freq_hz> <ontime_us>  -> Start a test tone
+  *   STOP <coil>                         -> Stop all tones on a coil
+  *   STOPALL                             -> Stop all tones everywhere
+  *   LIMITS <coil> <max_ot> <duty> <off> -> Set safety limits
+  *   LIMITS? <coil>                      -> Query limits
+  *   COILS?                              -> Query coil states
+  *   SCHED?                              -> Query scheduler stats
+  *   ROUTE <channel> <coil>              -> Set MIDI channel mapping
   ******************************************************************************
   */
 /* USER CODE END Header */
