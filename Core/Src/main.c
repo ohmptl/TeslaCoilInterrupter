@@ -113,6 +113,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    HAL_GPIO_TogglePin(STATUS_LED_GPIO_Port, STATUS_LED_Pin);
+    HAL_IWDG_Refresh(&hiwdg);
+    HAL_Delay(200);
   }
   /* USER CODE END 3 */
 }
