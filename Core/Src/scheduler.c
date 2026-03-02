@@ -277,6 +277,9 @@ void Scheduler_RemoveAllTones(uint8_t coil_id)
   {
     g_tones[coil_id][v].active = 0;
   }
+  /* Reset duty window so next FIRE starts with a clean budget */
+  g_coil_state[coil_id].duty_accum_us     = 0;
+  g_coil_state[coil_id].duty_window_start = g_sched_us;
   __enable_irq();
   CoilDriver_StopCoil(coil_id);
 }
@@ -290,6 +293,9 @@ void Scheduler_RemoveAllTonesAllCoils(void)
     {
       g_tones[c][v].active = 0;
     }
+    /* Reset duty window so next FIRE starts with a clean budget */
+    g_coil_state[c].duty_accum_us     = 0;
+    g_coil_state[c].duty_window_start = g_sched_us;
   }
   __enable_irq();
   CoilDriver_StopAll();

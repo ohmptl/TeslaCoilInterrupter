@@ -298,6 +298,11 @@ def test_duty_limiting(ser, R):
     send_cmd(ser, "LIMITS 0 200 1 50")
     time.sleep(0.05)
 
+    # Capture baseline pulse count (prior tests accumulate pulses on coil 0)
+    resp = send_cmd(ser, "COILS?")
+    data = parse_json_response(resp)
+    initial_pulses = data["coils"][0].get("pulses", 0) if data and "coils" in data else 0
+
     # Fire at 500 Hz with 50 µs on-time
     # Without duty limit: 500 * 50µs = 25000 µs/s = 2.5% duty
     # With 0.1% limit: budget only 100 µs per 100ms = ~2 pulses per window
@@ -310,12 +315,13 @@ def test_duty_limiting(ser, R):
 
     if data and "coils" in data:
         pulses = data["coils"][0].get("pulses", 0)
+        delta = pulses - initial_pulses
         # At 0.1% duty with 50µs on-time: ~2 pulses per 100ms window × 5 windows = ~10
         # Without limiting: ~250 pulses
-        if pulses < 50:
-            R.ok("Duty Limiting", f"only {pulses} pulses (duty-limited from ~250)")
+        if delta < 50:
+            R.ok("Duty Limiting", f"only {delta} pulses (duty-limited from ~250)")
         else:
-            R.fail("Duty Limiting", f"{pulses} pulses — duty limit may not be working")
+            R.fail("Duty Limiting", f"{delta} pulses — duty limit may not be working")
     else:
         R.fail("Duty Limiting", f"SCHED? parse failed: {resp}")
 
