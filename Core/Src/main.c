@@ -30,6 +30,10 @@
 #include "debug_uart.h"
 #include "cdc_parser.h"
 #include "usbd_composite.h"
+#include "safety.h"
+#include "coil_driver.h"
+#include "scheduler.h"
+#include "midi_engine.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -110,6 +114,19 @@ int main(void)
   Debug_Log("System booting...");
   CDC_Parser_Init();
   Debug_Log("USB Composite (CDC+MIDI) initialized");
+
+  /* Milestone 2: Initialize safety, coil driver, scheduler, MIDI engine */
+  Safety_Init();
+  Debug_Log("Safety limits initialized (defaults)");
+
+  CoilDriver_Init();
+  Debug_Log("Coil driver initialized (6 OPM timers)");
+
+  MidiEngine_Init();
+
+  Scheduler_Init();
+  Scheduler_Start();
+
   Debug_Log("Entering main loop");
   /* USER CODE END 2 */
 
@@ -124,6 +141,10 @@ int main(void)
     /* ------ CDC Command Processing (HIGHEST PRIORITY in main loop) ------ */
     /* Process CDC commands BEFORE MIDI to guarantee control is never starved */
     CDC_Parser_Process(&hUsbDeviceFS);
+
+    /* ------ MIDI Note Processing ------ */
+    /* Process USB MIDI packets → scheduler tones (lower priority than CDC) */
+    MidiEngine_ProcessUSB(&hUsbDeviceFS);
 
     /* ------ CDC TX Flush ------ */
     USBD_Composite_CDC_TxFlush(&hUsbDeviceFS);
