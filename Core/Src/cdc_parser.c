@@ -326,6 +326,21 @@ static void CDC_Parser_Dispatch(USBD_HandleTypeDef *pdev, const char *cmd, uint1
     return;
   }
 
+  /* --- ROUTE? --- (query full routing table, check before ROUTE) */
+  if (strnicmp_local(cmd, "ROUTE?", 6) == 0 && len == 6)
+  {
+    CDC_Printf(pdev, "{\"routes\":[");
+    for (uint8_t ch = 0; ch < MIDI_MAX_CHANNELS; ch++)
+    {
+      uint8_t coil = MidiEngine_GetChannelCoil(ch);
+      if (ch > 0) CDC_Printf(pdev, ",");
+      CDC_Printf(pdev, "{\"ch\":%u,\"coil\":%u}", ch, (unsigned)coil);
+    }
+    CDC_Printf(pdev, "]}\r\n");
+    Debug_Log("[CDC] TX: ROUTE?");
+    return;
+  }
+
   /* --- ROUTE <channel> <coil> --- */
   if (strnicmp_local(cmd, "ROUTE ", 6) == 0)
   {
@@ -340,6 +355,72 @@ static void CDC_Parser_Dispatch(USBD_HandleTypeDef *pdev, const char *cmd, uint1
     MidiEngine_SetChannelCoil((uint8_t)channel, coil_id);
     CDC_Printf(pdev, "OK:ROUTE ch=%u coil=%u\r\n", channel, (unsigned)coil_id);
     Debug_Printf("[CDC] ROUTE ch=%u coil=%u", channel, (unsigned)coil_id);
+    return;
+  }
+
+  /* ================================================================ */
+  /*                   Milestone 3 Commands                           */
+  /* ================================================================ */
+
+  /* --- ENABLE <coil> --- */
+  if (strnicmp_local(cmd, "ENABLE ", 7) == 0)
+  {
+    unsigned int coil = 0;
+    if (sscanf(cmd + 7, "%u", &coil) != 1 || coil >= NUM_COILS)
+    {
+      CDC_Printf(pdev, "ERR:ENABLE_ARGS (usage: ENABLE <coil 0-5>)\r\n");
+      return;
+    }
+    Scheduler_SetCoilEnabled((uint8_t)coil, 1U);
+    CDC_Printf(pdev, "OK:ENABLE coil=%u\r\n", coil);
+    Debug_Printf("[CDC] ENABLE coil=%u", coil);
+    return;
+  }
+
+  /* --- DISABLE <coil> --- */
+  if (strnicmp_local(cmd, "DISABLE ", 8) == 0)
+  {
+    unsigned int coil = 0;
+    if (sscanf(cmd + 8, "%u", &coil) != 1 || coil >= NUM_COILS)
+    {
+      CDC_Printf(pdev, "ERR:DISABLE_ARGS (usage: DISABLE <coil 0-5>)\r\n");
+      return;
+    }
+    Scheduler_RemoveAllTones((uint8_t)coil);
+    Scheduler_SetCoilEnabled((uint8_t)coil, 0U);
+    CDC_Printf(pdev, "OK:DISABLE coil=%u\r\n", coil);
+    Debug_Printf("[CDC] DISABLE coil=%u", coil);
+    return;
+  }
+
+  /* --- ROUTEALL <coil> --- route all 16 MIDI channels to one coil */
+  if (strnicmp_local(cmd, "ROUTEALL ", 9) == 0)
+  {
+    unsigned int coil = 0;
+    if (sscanf(cmd + 9, "%u", &coil) != 1)
+    {
+      CDC_Printf(pdev, "ERR:ROUTEALL_ARGS (usage: ROUTEALL <coil 0-5 or 255>)\r\n");
+      return;
+    }
+    uint8_t coil_id = (coil >= NUM_COILS) ? MIDI_CHANNEL_UNMAP : (uint8_t)coil;
+    for (uint8_t ch = 0; ch < MIDI_MAX_CHANNELS; ch++)
+    {
+      MidiEngine_SetChannelCoil(ch, coil_id);
+    }
+    CDC_Printf(pdev, "OK:ROUTEALL coil=%u\r\n", (unsigned)coil_id);
+    Debug_Printf("[CDC] ROUTEALL coil=%u", (unsigned)coil_id);
+    return;
+  }
+
+  /* --- ROUTERESET --- restore default routing (ch N -> coil N for 0-5) */
+  if (strnicmp_local(cmd, "ROUTERESET", 10) == 0 && len == 10)
+  {
+    for (uint8_t ch = 0; ch < MIDI_MAX_CHANNELS; ch++)
+    {
+      MidiEngine_SetChannelCoil(ch, (ch < NUM_COILS) ? ch : MIDI_CHANNEL_UNMAP);
+    }
+    CDC_Printf(pdev, "OK:ROUTERESET\r\n");
+    Debug_Log("[CDC] ROUTERESET");
     return;
   }
 

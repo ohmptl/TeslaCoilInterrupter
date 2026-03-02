@@ -29,6 +29,13 @@
   *   COILS?                              -> Query coil states
   *   SCHED?                              -> Query scheduler stats
   *   ROUTE <channel> <coil>              -> Set MIDI channel mapping
+  *
+  * Supported commands (Milestone 3):
+  *   ROUTE?                              -> Query full routing table (JSON)
+  *   ROUTEALL <coil>                     -> Route all 16 channels to one coil
+  *   ROUTERESET                          -> Restore default routing
+  *   ENABLE <coil>                       -> Enable coil output
+  *   DISABLE <coil>                      -> Disable coil output + remove tones
   ******************************************************************************
   */
 /* USER CODE END Header */
