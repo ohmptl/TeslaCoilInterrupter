@@ -70,6 +70,14 @@ void CoilDriver_StopAll(void);
  */
 uint8_t CoilDriver_IsActive(uint8_t coil_id);
 
+/**
+ * @brief  Check if any coil output pin is physically HIGH (reads GPIO IDR).
+ *         Used for boot safety verification and LED indicator.
+ *         Very fast: 3 register reads, no side effects.
+ * @return 1 if any coil pin is HIGH, 0 if all are LOW.
+ */
+uint8_t CoilDriver_AnyPinHigh(void);
+
 #ifdef __cplusplus
 }
 #endif

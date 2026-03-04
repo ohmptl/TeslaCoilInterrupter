@@ -121,15 +121,44 @@ class MidiPlayer:
         self.progress = 0.0  # 0.0 to 1.0
 
     @staticmethod
-    def find_midi_port():
+    def list_midi_ports():
+        """Return (list_of_port_names, best_match_or_None)."""
         try:
             import mido
-            for name in mido.get_output_names():
-                if "TC-Interrupter" in name or "MIDI" in name:
-                    return name
+            ports = mido.get_output_names()
         except ImportError:
-            pass
-        return None
+            return [], None
+        except Exception:
+            return [], None
+
+        if not ports:
+            return [], None
+
+        # Priority matching: most-specific first
+        for name in ports:
+            if "TC-Interrupter" in name:
+                return ports, name
+        # USB MIDI devices on Windows often appear as
+        # "USB MIDI Interface 0" or the product string
+        for name in ports:
+            nl = name.lower()
+            if "interrupter" in nl or "tc-" in nl or "stm" in nl:
+                return ports, name
+        # Fall back to any port with MIDI in the name (but not
+        # built-in synths like "Microsoft GS Wavetable Synth")
+        for name in ports:
+            nl = name.lower()
+            if "usb" in nl and "midi" in nl:
+                return ports, name
+        # If only one port exists, that's probably it
+        if len(ports) == 1:
+            return ports, ports[0]
+        return ports, None
+
+    @staticmethod
+    def find_midi_port():
+        _, best = MidiPlayer.list_midi_ports()
+        return best
 
     def play(self, filepath, midi_port_name, on_finish=None):
         if self.playing:
@@ -199,6 +228,8 @@ class TCInterrupterGUI:
         self.dev = DeviceLink()
         self.player = MidiPlayer()
         self.polling = False
+        self._coil_firing = False   # True while a test tone is active
+        self._update_pending = None # Scheduled after-id for live updates
 
         self._build_ui()
 
@@ -305,6 +336,10 @@ class TCInterrupterGUI:
 
         param_frame.columnconfigure(1, weight=1)
 
+        # Bind slider/entry changes to live-update when firing
+        self.freq_var.trace_add("write", self._on_param_changed)
+        self.ontime_var.trace_add("write", self._on_param_changed)
+
         # Fire / Stop buttons
         btn_frame = ttk.Frame(tab)
         btn_frame.pack(fill=tk.X, pady=8)
@@ -363,7 +398,7 @@ class TCInterrupterGUI:
 
         self.midi_port_var = tk.StringVar(value="(auto-detect)")
         self.midi_port_combo = ttk.Combobox(port_frame, textvariable=self.midi_port_var,
-                                             width=40, state="readonly")
+                                             width=40)
         self.midi_port_combo.pack(side=tk.LEFT, padx=4)
         ttk.Button(port_frame, text="Refresh",
                    command=self._refresh_midi_ports).pack(side=tk.LEFT, padx=4)
@@ -565,6 +600,7 @@ class TCInterrupterGUI:
 
     def _disconnect(self):
         self.polling = False
+        self._coil_firing = False
         self.dev.disconnect()
         self.conn_status.config(text="Disconnected", foreground="red")
         self.connect_btn.config(text="Connect")
@@ -625,15 +661,22 @@ class TCInterrupterGUI:
             messagebox.showwarning("Not Connected", "Connect to the device first.")
             return
         coil = self.coil_var.get()
-        freq = self.freq_var.get()
-        ontime = self.ontime_var.get()
+        try:
+            freq = int(self.freq_var.get())
+            ontime = int(self.ontime_var.get())
+        except (ValueError, tk.TclError):
+            return
         if freq <= 0 or ontime <= 0:
             messagebox.showwarning("Invalid", "Frequency and on-time must be > 0")
             return
+        # Stop existing tone first so FIRE overwrites cleanly
+        if self._coil_firing:
+            self.dev.send(f"STOP {coil}")
         cmd = f"FIRE {coil} {freq} {ontime}"
         resp = self.dev.send(cmd)
         self._log(f"> {cmd}")
         self._log(f"< {resp}")
+        self._coil_firing = True
         self.status_label.config(text=f"Fired Coil {coil+1}: {freq} Hz, {ontime} µs")
 
     def _stop_coil(self):
@@ -644,6 +687,7 @@ class TCInterrupterGUI:
         resp = self.dev.send(cmd)
         self._log(f"> {cmd}")
         self._log(f"< {resp}")
+        self._coil_firing = False
         self.status_label.config(text=f"Stopped Coil {coil+1}")
 
     def _stopall(self):
@@ -652,7 +696,42 @@ class TCInterrupterGUI:
         resp = self.dev.send("STOPALL")
         self._log("> STOPALL")
         self._log(f"< {resp}")
+        self._coil_firing = False
         self.status_label.config(text="All coils stopped")
+
+    def _on_param_changed(self, *_args):
+        """Called when freq or ontime slider/entry changes.
+
+        If a coil is actively firing, schedule a re-FIRE after a short
+        debounce delay so the new parameters take effect immediately
+        without spamming the device on every pixel of slider movement.
+        """
+        if not self._coil_firing or not self.dev.connected:
+            return
+        # Cancel any previously scheduled update
+        if self._update_pending is not None:
+            self.root.after_cancel(self._update_pending)
+        # Debounce: wait 100 ms after the last change before sending
+        self._update_pending = self.root.after(100, self._live_update)
+
+    def _live_update(self):
+        """Re-send FIRE with current slider values (debounced)."""
+        self._update_pending = None
+        if not self._coil_firing or not self.dev.connected:
+            return
+        coil = self.coil_var.get()
+        try:
+            freq = int(self.freq_var.get())
+            ontime = int(self.ontime_var.get())
+        except (ValueError, tk.TclError):
+            return
+        if freq <= 0 or ontime <= 0:
+            return
+        # STOP + FIRE to cleanly replace the active tone
+        self.dev.send(f"STOP {coil}")
+        cmd = f"FIRE {coil} {freq} {ontime}"
+        resp = self.dev.send(cmd)
+        self.status_label.config(text=f"Live: Coil {coil+1}: {freq} Hz, {ontime} µs")
 
     # -----------------------------------------------------------------------
     #  MIDI Tab Actions
@@ -670,15 +749,39 @@ class TCInterrupterGUI:
     def _refresh_midi_ports(self):
         try:
             import mido
-            ports = mido.get_output_names()
+            ports, best = MidiPlayer.list_midi_ports()
+            if not ports:
+                # Show diagnostic: try to figure out why
+                diag = "(no MIDI ports found"
+                try:
+                    import rtmidi
+                    api = rtmidi.RtMidi.get_compiled_api()
+                    diag += f" — rtmidi APIs: {api}"
+                except Exception:
+                    pass
+                diag += ")"
+                self.midi_port_combo["values"] = [diag]
+                self.midi_port_var.set(diag)
+                self._log(f"MIDI refresh: {diag}")
+                self._log("Tip: Ensure the device is connected and recognized ")
+                self._log("     by Windows as a MIDI device (check Device Manager ")
+                self._log("     under 'Sound, video and game controllers').")
+                return
+
+            # Allow the user to also type a custom name
+            self.midi_port_combo["state"] = "normal"
             self.midi_port_combo["values"] = ports
-            auto = MidiPlayer.find_midi_port()
-            if auto:
-                self.midi_port_var.set(auto)
-            elif ports:
+            if best:
+                self.midi_port_var.set(best)
+            else:
                 self.midi_port_var.set(ports[0])
+
+            port_list = ', '.join(ports)
+            self._log(f"MIDI ports found: {port_list}")
+            if best:
+                self._log(f"Auto-selected: {best}")
         except ImportError:
-            self.midi_port_combo["values"] = ["(mido not installed)"]
+            self.midi_port_combo["values"] = ["(mido not installed — pip install mido python-rtmidi)"]
             self.midi_port_var.set("(mido not installed)")
 
     def _play_midi(self):
@@ -821,6 +924,8 @@ class TCInterrupterGUI:
         self.cmd_var.set("")
 
     def _log(self, text):
+        if not hasattr(self, "console_log"):
+            return
         self.console_log.config(state=tk.NORMAL)
         self.console_log.insert(tk.END, text + "\n")
         self.console_log.see(tk.END)

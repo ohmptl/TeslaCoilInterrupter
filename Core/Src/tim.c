@@ -68,7 +68,7 @@ void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
@@ -91,7 +91,11 @@ void MX_TIM1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM1_Init 2 */
-
+  /* SAFETY: Force CCR1 to safe idle value before MspPostInit connects pin.
+   * PWM2 mode with CCR1=65535: output LOW because CNT(0) < 65535. */
+  TIM1->CCR1 = 65535;
+  TIM1->EGR  = TIM_EGR_UG;
+  TIM1->SR   = 0;
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
 
@@ -130,7 +134,7 @@ void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_ENABLE;
@@ -139,7 +143,9 @@ void MX_TIM4_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM4_Init 2 */
-
+  TIM4->CCR1 = 65535;
+  TIM4->EGR  = TIM_EGR_UG;
+  TIM4->SR   = 0;
   /* USER CODE END TIM4_Init 2 */
   HAL_TIM_MspPostInit(&htim4);
 
@@ -204,7 +210,7 @@ void MX_TIM9_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_ENABLE;
@@ -213,7 +219,9 @@ void MX_TIM9_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM9_Init 2 */
-
+  TIM9->CCR1 = 65535;
+  TIM9->EGR  = TIM_EGR_UG;
+  TIM9->SR   = 0;
   /* USER CODE END TIM9_Init 2 */
   HAL_TIM_MspPostInit(&htim9);
 
@@ -249,7 +257,7 @@ void MX_TIM10_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_ENABLE;
@@ -258,7 +266,9 @@ void MX_TIM10_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM10_Init 2 */
-
+  TIM10->CCR1 = 65535;
+  TIM10->EGR  = TIM_EGR_UG;
+  TIM10->SR   = 0;
   /* USER CODE END TIM10_Init 2 */
   HAL_TIM_MspPostInit(&htim10);
 
@@ -294,7 +304,7 @@ void MX_TIM11_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_ENABLE;
@@ -303,7 +313,9 @@ void MX_TIM11_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM11_Init 2 */
-
+  TIM11->CCR1 = 65535;
+  TIM11->EGR  = TIM_EGR_UG;
+  TIM11->SR   = 0;
   /* USER CODE END TIM11_Init 2 */
   HAL_TIM_MspPostInit(&htim11);
 
@@ -335,7 +347,7 @@ void MX_TIM13_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.OCMode = TIM_OCMODE_PWM2;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_ENABLE;
@@ -344,7 +356,9 @@ void MX_TIM13_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM13_Init 2 */
-
+  TIM13->CCR1 = 65535;
+  TIM13->EGR  = TIM_EGR_UG;
+  TIM13->SR   = 0;
   /* USER CODE END TIM13_Init 2 */
   HAL_TIM_MspPostInit(&htim13);
 

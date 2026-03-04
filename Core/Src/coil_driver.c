@@ -57,26 +57,27 @@ void CoilDriver_Init(void)
   TIM1->BDTR |= TIM_BDTR_MOE;
 
   /*
-   * 3. Enable Capture/Compare output channel 1 for all coil timers.
-   *    CubeMX's HAL_TIM_PWM_ConfigChannel() sets up OC mode/polarity but
-   *    doesn't enable the output channel.  CC1E makes the pin drive.
-   *
-   *    With CCR1=0 and CNT=0: PWM1 output = inactive (LOW) since 0 < 0 is
-   *    false.  So no spurious output when enabling the channel.
-   */
-  for (uint8_t i = 0; i < NUM_COILS; i++)
-  {
-    g_tim[i]->CCER |= TIM_CCER_CC1E;
-  }
-
-  /*
-   * 4. Ensure all timers are stopped and at idle.
+   * 3. Force safe idle state on all timers BEFORE enabling outputs.
+   *    Set CCR1=65535 so PWM2 output is LOW (CNT=0 < 65535 → inactive).
+   *    Force UG to transfer preloaded CCR1 into shadow registers.
+   *    MUST happen before CC1E is set to avoid any HIGH glitch.
    */
   for (uint8_t i = 0; i < NUM_COILS; i++)
   {
     g_tim[i]->CR1 &= ~TIM_CR1_CEN;
     g_tim[i]->CNT  = 0;
-    g_tim[i]->CCR1 = 0;
+    g_tim[i]->CCR1 = 65535;
+    g_tim[i]->EGR  = TIM_EGR_UG;
+    g_tim[i]->SR   = 0;
+  }
+
+  /*
+   * 4. Enable Capture/Compare output channel 1 for all coil timers.
+   *    Safe to enable now: CCR1=65535 guarantees PWM2 output is LOW.
+   */
+  for (uint8_t i = 0; i < NUM_COILS; i++)
+  {
+    g_tim[i]->CCER |= TIM_CCER_CC1E;
   }
 }
 
@@ -88,17 +89,23 @@ void CoilDriver_ArmPulse(uint8_t coil_id, uint16_t ontime_us)
 
   /*
    * Load the pulse width into preload registers:
-   *   ARR  = ontime_us  → timer counts from 0 to ARR then stops (OPM)
-   *   CCR1 = ontime_us  → output HIGH while CNT < CCR1 (PWM1 mode)
+   *   ARR  = ontime_us   → Timer counts from 0 to ARR (total ARR+1 states) and stops (OPM).
+   *   CCR1 = 1           → Output becomes HIGH when CNT >= CCR1 (PWM2 mode).
+   * 
+   * With PWM Mode 2:
+   *   CNT = 0            → 0 < 1 is true. Output INACTIVE (LOW). Lasts 1us.
+   *   CNT = 1 to ARR     → CNT < 1 is false. Output ACTIVE (HIGH). Lasts ARR us.
+   *   At CNT = ARR, the timeout wraps to 0 and stops.
+   *   When stopped at CNT = 0, output correctly remains INACTIVE (LOW).
    *
    * Force an Update Event via EGR to transfer preloaded values into
-   * shadow registers and reset CNT to 0.  Clear the resulting UIF so
+   * shadow registers and reset CNT to 0. Clear the resulting UIF so
    * it doesn't trigger a spurious ISR.
    *
    * Then set CEN to arm the one-pulse.
    */
   tim->ARR  = (uint32_t)ontime_us;
-  tim->CCR1 = (uint32_t)ontime_us;
+  tim->CCR1 = 1;
   tim->EGR  = TIM_EGR_UG;    /* Load shadows, reset CNT */
   tim->SR   = 0;              /* Clear all interrupt flags */
   tim->CR1 |= TIM_CR1_CEN;   /* Start counting → output goes HIGH */
@@ -114,8 +121,8 @@ void CoilDriver_StopCoil(uint8_t coil_id)
   tim->CR1 &= ~TIM_CR1_CEN;
   tim->CNT  = 0;
 
-  /* Force output LOW: set CCR1=0 → PWM1 output inactive */
-  tim->CCR1 = 0;
+  /* Force output LOW: set CCR1=65535 → PWM2 output inactive */
+  tim->CCR1 = 65535;
   tim->EGR  = TIM_EGR_UG;
   tim->SR   = 0;
 }
@@ -135,7 +142,7 @@ void CoilDriver_StopAll(void)
   for (uint8_t i = 0; i < NUM_COILS; i++)
   {
     g_tim[i]->CNT  = 0;
-    g_tim[i]->CCR1 = 0;
+    g_tim[i]->CCR1 = 65535;
     g_tim[i]->EGR  = TIM_EGR_UG;
     g_tim[i]->SR   = 0;
   }
@@ -145,4 +152,21 @@ uint8_t CoilDriver_IsActive(uint8_t coil_id)
 {
   if (coil_id >= NUM_COILS) return 0;
   return (g_tim[coil_id]->CR1 & TIM_CR1_CEN) ? 1U : 0U;
+}
+
+uint8_t CoilDriver_AnyPinHigh(void)
+{
+  /*
+   * Read GPIO Input Data Registers for all coil output pins.
+   *   Coil 0: PE9,  Coil 2: PE5   → GPIOE
+   *   Coil 1: PD12                → GPIOD
+   *   Coil 3: PF6,  Coil 4: PF7,  Coil 5: PF8 → GPIOF
+   *
+   * Even in AF mode, IDR reflects the actual pin state.
+   * Cost: 3 register reads — negligible.
+   */
+  if (GPIOE->IDR & (GPIO_PIN_9 | GPIO_PIN_5))              return 1U;
+  if (GPIOD->IDR & GPIO_PIN_12)                             return 1U;
+  if (GPIOF->IDR & (GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8)) return 1U;
+  return 0U;
 }

@@ -55,7 +55,6 @@
 
 /* USER CODE BEGIN PV */
 extern USBD_HandleTypeDef hUsbDeviceFS;
-static uint32_t last_heartbeat_tick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -122,12 +121,44 @@ int main(void)
   CoilDriver_Init();
   Debug_Log("Coil driver initialized (6 OPM timers)");
 
+  /* SAFETY: Verify all coil outputs are LOW after initialization.
+   * If any pin is still HIGH, hardware or init is broken — engage E-Stop. */
+  if (CoilDriver_AnyPinHigh())
+  {
+    Debug_Log("[SAFETY] CRITICAL: Coil pin(s) HIGH after init! E-Stop engaged.");
+    Safety_EStopSet(1);
+    CoilDriver_StopAll();
+  }
+  else
+  {
+    Debug_Log("[SAFETY] Boot check passed: all coil pins LOW");
+  }
+
+  /* SAFETY: Sync E-Stop state to the actual physical button position.
+   * This corrects any stale state from transient EXTI edges during boot.
+   * Pull-up: pin LOW = pressed (grounded) = E-Stop active. */
+  {
+    uint8_t btn_pressed = (HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port,
+                                            ESTOP_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
+    Safety_EStopSet(btn_pressed);
+    if (btn_pressed)
+    {
+      CoilDriver_StopAll();
+      Debug_Log("[SAFETY] E-Stop button is physically pressed at boot");
+    }
+    else
+    {
+      Debug_Log("[SAFETY] E-Stop button released — system armed");
+    }
+  }
+
   MidiEngine_Init();
 
   Scheduler_Init();
   Scheduler_Start();
 
   Debug_Log("Entering main loop");
+  HAL_GPIO_TogglePin(STATUS_LED_GPIO_Port, STATUS_LED_Pin);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -151,14 +182,6 @@ int main(void)
 
     /* ------ Debug UART Flush ------ */
     Debug_Flush();
-
-    /* ------ Heartbeat LED (200 ms toggle) ------ */
-    uint32_t now = HAL_GetTick();
-    if ((now - last_heartbeat_tick) >= 500U)
-    {
-      last_heartbeat_tick = now;
-      HAL_GPIO_TogglePin(STATUS_LED_GPIO_Port, STATUS_LED_Pin);
-    }
 
     /* ------ Watchdog Feed ------ */
     HAL_IWDG_Refresh(&hiwdg);

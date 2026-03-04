@@ -88,10 +88,41 @@ void MX_GPIO_Init(void)
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  /*
+   * SAFETY: Clear any spurious EXTI pending flag before enabling the IRQ.
+   * GPIO init and pull-up engagement can cause a transient edge that latches
+   * the pending bit.  Without this clear, the ISR fires immediately on enable
+   * and may read a transient LOW → false E-Stop on every boot.
+   */
+  __HAL_GPIO_EXTI_CLEAR_IT(ESTOP_BUTTON_Pin);
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
-}
+
 
 /* USER CODE BEGIN 2 */
+  /*
+   * SAFETY: Pre-configure all coil output pins as GPIO OUTPUT LOW.
+   * This ensures pins are driven LOW from the earliest possible moment,
+   * before timer inits switch them to Alternate Function mode.
+   * Pins: PE9(Coil0), PD12(Coil1), PE5(Coil2), PF6(Coil3), PF7(Coil4), PF8(Coil5)
+   */
+  {
+    GPIO_InitTypeDef coil_gpio = {0};
+    coil_gpio.Mode  = GPIO_MODE_OUTPUT_PP;
+    coil_gpio.Pull  = GPIO_PULLDOWN;
+    coil_gpio.Speed = GPIO_SPEED_FREQ_LOW;
 
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9 | GPIO_PIN_5, GPIO_PIN_RESET);
+    coil_gpio.Pin = GPIO_PIN_9 | GPIO_PIN_5;
+    HAL_GPIO_Init(GPIOE, &coil_gpio);
+
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET);
+    coil_gpio.Pin = GPIO_PIN_12;
+    HAL_GPIO_Init(GPIOD, &coil_gpio);
+
+    HAL_GPIO_WritePin(GPIOF, GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8, GPIO_PIN_RESET);
+    coil_gpio.Pin = GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8;
+    HAL_GPIO_Init(GPIOF, &coil_gpio);
+  }
+}
 /* USER CODE END 2 */
