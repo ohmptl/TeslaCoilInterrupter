@@ -501,15 +501,15 @@ class TCInterrupterGUI:
             ttk.Label(lim_frame, text=f"Coil {c+1}").grid(
                 row=c + 1, column=0, padx=6, pady=2)
 
-            ot_var = tk.IntVar(value=200)
+            ot_var = tk.IntVar(value=50)
             ot_entry = ttk.Entry(lim_frame, textvariable=ot_var, width=8)
             ot_entry.grid(row=c + 1, column=1, padx=6, pady=2)
 
-            duty_var = tk.IntVar(value=10)
+            duty_var = tk.IntVar(value=50)
             duty_entry = ttk.Entry(lim_frame, textvariable=duty_var, width=8)
             duty_entry.grid(row=c + 1, column=2, padx=6, pady=2)
 
-            off_var = tk.IntVar(value=100)
+            off_var = tk.IntVar(value=10)
             off_entry = ttk.Entry(lim_frame, textvariable=off_var, width=8)
             off_entry.grid(row=c + 1, column=3, padx=6, pady=2)
 

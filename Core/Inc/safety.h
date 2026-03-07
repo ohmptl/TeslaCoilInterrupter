@@ -31,9 +31,10 @@ extern "C" {
 #define NUM_COILS                   6U
 
 /* ---------- Configurable Defaults (per-coil) ---------- */
-#define SAFETY_DEF_MAX_ONTIME_US    200U    /* 200 µs default max pulse width     */
-#define SAFETY_DEF_MIN_OFFTIME_US   100U    /* 100 µs default min gap             */
-#define SAFETY_DEF_MAX_DUTY_PERMIL  10U     /* 1.0% default max duty cycle        */
+/* Matched to Syntherrupter's proven-safe "Master Yoda" tier.              */
+#define SAFETY_DEF_MAX_ONTIME_US    50U     /* 50 µs default max pulse width      */
+#define SAFETY_DEF_MIN_OFFTIME_US   10U     /* 10 µs default min gap              */
+#define SAFETY_DEF_MAX_DUTY_PERMIL  50U     /* 5.0% default max duty cycle        */
 
 /* ---------- Absolute Hardware Limits (cannot be exceeded) ---------- */
 #define SAFETY_ABS_MAX_ONTIME_US    500U    /* 500 µs: silicon-enforced ceiling   */

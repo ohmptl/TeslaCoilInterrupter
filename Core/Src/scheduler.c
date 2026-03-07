@@ -115,37 +115,7 @@ void Scheduler_Tick(void)
     int32_t since_end = (int32_t)(g_sched_us - cs->last_pulse_end_us);
     if (since_end < (int32_t)cs->cached_min_offtime_us) continue;
 
-    /* ---- Find earliest-due tone for this coil ---- */
-    SchedulerTone_t *best = NULL;
-    for (uint8_t v = 0; v < MAX_VOICES_PER_COIL; v++)
-    {
-      SchedulerTone_t *t = &g_tones[c][v];
-      if (!t->active) continue;
-
-      /* Is this tone due to fire? (signed compare handles wrap) */
-      if ((int32_t)(t->next_fire_us - g_sched_us) <= 0)
-      {
-        if (best == NULL ||
-            (int32_t)(t->next_fire_us - best->next_fire_us) < 0)
-        {
-          best = t;
-        }
-      }
-    }
-
-    if (best == NULL) continue;
-
-    /* ---- Clamp on-time ---- */
-    uint16_t ot = best->ontime_us;
-    if (ot > cs->cached_max_ontime_us)
-      ot = cs->cached_max_ontime_us;
-    if (ot == 0)
-    {
-      best->next_fire_us += best->period_us;
-      continue;
-    }
-
-    /* ---- Duty cycle budget check (100 ms window) ---- */
+    /* ---- Refresh duty window ---- */
     uint32_t window_elapsed = g_sched_us - cs->duty_window_start;
     if (window_elapsed >= SAFETY_DUTY_WINDOW_US)
     {
@@ -153,24 +123,85 @@ void Scheduler_Tick(void)
       cs->duty_window_start = g_sched_us;
     }
 
-    if (cs->duty_accum_us + ot <= cs->max_ontime_window)
+    /* ---- Collect ALL due tones, sort by next_fire_us ---- */
+    SchedulerTone_t *due[MAX_VOICES_PER_COIL];
+    uint8_t due_count = 0;
+
+    for (uint8_t v = 0; v < MAX_VOICES_PER_COIL; v++)
     {
-      /* Budget allows — fire the pulse */
-      CoilDriver_ArmPulse(c, ot);
-      cs->duty_accum_us     += ot;
-      cs->last_pulse_end_us  = g_sched_us + ot;
-      cs->pulse_count++;
+      SchedulerTone_t *t = &g_tones[c][v];
+      if (!t->active) continue;
+      if ((int32_t)(t->next_fire_us - g_sched_us) <= 0)
+        due[due_count++] = t;
     }
-    /* else: duty budget exhausted — skip this pulse silently */
 
-    /* ---- Advance tone's next fire time ---- */
-    best->next_fire_us += best->period_us;
+    if (due_count == 0) continue;
 
-    /* If we missed many pulses, catch up to avoid burst */
-    if ((int32_t)(best->next_fire_us - g_sched_us) <
-        -(int32_t)(best->period_us))
+    /* Insertion sort by next_fire_us (at most 8 elements) */
+    for (uint8_t i = 1; i < due_count; i++)
     {
-      best->next_fire_us = g_sched_us + best->period_us;
+      SchedulerTone_t *key = due[i];
+      int8_t j = (int8_t)i - 1;
+      while (j >= 0 && (int32_t)(due[j]->next_fire_us - key->next_fire_us) > 0)
+      {
+        due[j + 1] = due[j];
+        j--;
+      }
+      due[j + 1] = key;
+    }
+
+    /* ---- Merge due pulses into one superposed on-time ---- */
+    /*
+     * Pulse superposition (like Syntherrupter):
+     * Walk the sorted due-tones and build a combined on-time.
+     * Each tone's pulse is placed back-to-back after the previous
+     * one ends (separated by min_offtime if configured to 0, they
+     * merge seamlessly).  The merged total is capped by the duty
+     * budget and max_ontime.
+     */
+    uint16_t merged_ot = 0;
+    uint16_t max_ot    = cs->cached_max_ontime_us;
+    uint32_t budget    = cs->max_ontime_window - cs->duty_accum_us;
+
+    for (uint8_t i = 0; i < due_count; i++)
+    {
+      uint16_t ot = due[i]->ontime_us;
+      if (ot > max_ot) ot = max_ot;
+
+      /* Check if adding this pulse would exceed duty budget */
+      if ((uint32_t)(merged_ot + ot) > budget)
+      {
+        /* Clamp to remaining budget */
+        if (merged_ot < (uint16_t)budget)
+          ot = (uint16_t)(budget - merged_ot);
+        else
+          ot = 0;
+      }
+
+      merged_ot += ot;
+
+      /* Advance this tone regardless (avoid re-triggering next tick) */
+      due[i]->next_fire_us += due[i]->period_us;
+
+      /* If we missed many pulses, catch up to avoid burst */
+      if ((int32_t)(due[i]->next_fire_us - g_sched_us) <
+          -(int32_t)(due[i]->period_us))
+      {
+        due[i]->next_fire_us = g_sched_us + due[i]->period_us;
+      }
+    }
+
+    /* ---- Fire the merged pulse ---- */
+    if (merged_ot > 0)
+    {
+      /* Final clamp: merged total cannot exceed single-pulse max */
+      if (merged_ot > max_ot)
+        merged_ot = max_ot;
+
+      CoilDriver_ArmPulse(c, merged_ot);
+      cs->duty_accum_us     += merged_ot;
+      cs->last_pulse_end_us  = g_sched_us + merged_ot;
+      cs->pulse_count++;
     }
   }
 }
