@@ -374,3 +374,16 @@ uint8_t Scheduler_GetActiveVoices(uint8_t coil_id)
   }
   return count;
 }
+
+void Scheduler_GetToneInfo(uint8_t coil_id, uint8_t voice_idx, SchedulerTone_t *tone)
+{
+  if (coil_id >= NUM_COILS || voice_idx >= MAX_VOICES_PER_COIL || tone == NULL)
+  {
+    if (tone != NULL) memset(tone, 0, sizeof(SchedulerTone_t));
+    return;
+  }
+  __disable_irq();
+  *tone = g_tones[coil_id][voice_idx];
+  __enable_irq();
+}
+

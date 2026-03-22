@@ -34,6 +34,7 @@
 #include "coil_driver.h"
 #include "scheduler.h"
 #include "midi_engine.h"
+#include "display_ui.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -154,6 +155,10 @@ int main(void)
 
   MidiEngine_Init();
 
+  /* OLED Display: staggered init to prevent 3.3V brownout from inrush.
+   * Must be called after MX_SPI2_Init() and MX_GPIO_Init(). */
+  DisplayUI_Init();
+
   Scheduler_Init();
   Scheduler_Start();
 
@@ -179,6 +184,9 @@ int main(void)
 
     /* ------ CDC TX Flush ------ */
     USBD_Composite_CDC_TxFlush(&hUsbDeviceFS);
+
+    /* ------ OLED Display Update (~15 FPS, non-blocking) ------ */
+    DisplayUI_Update();
 
     /* ------ Debug UART Flush ------ */
     Debug_Flush();

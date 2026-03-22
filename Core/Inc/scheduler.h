@@ -157,6 +157,15 @@ void    Scheduler_GetStats(SchedulerStats_t *stats);
 void    Scheduler_GetCoilState(uint8_t coil_id, CoilSchedState_t *state);
 uint8_t Scheduler_GetActiveVoices(uint8_t coil_id);
 
+/**
+ * @brief  Read a copy of a tone slot (ISR-safe).
+ *         Used by the display to inspect per-coil frequency/on-time.
+ * @param  coil_id    Coil index 0..5
+ * @param  voice_idx  Voice slot index 0..MAX_VOICES_PER_COIL-1
+ * @param  tone       Output: copy of the tone slot
+ */
+void Scheduler_GetToneInfo(uint8_t coil_id, uint8_t voice_idx, SchedulerTone_t *tone);
+
 #ifdef __cplusplus
 }
 #endif
