@@ -3,8 +3,9 @@
   * @file    display_ui.h
   * @brief   OLED display UI renderer for the TC-Interrupter.
   *
-  *          Renders a status header (E-Stop / USB / uptime) and a 6-coil
-  *          body area that adapts between Wave mode and MIDI mode.
+  *          Renders a minimal header (SYS OK / E-STOP) and a column-major
+  *          6-coil grid that supports QCW column merging.
+  *          Boot screen waits for GUI connection before showing main display.
   *          Runs in the main super-loop at ~15 FPS (non-blocking).
   ******************************************************************************
   */

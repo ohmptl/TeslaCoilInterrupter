@@ -83,6 +83,12 @@ void CDC_Parser_Process(USBD_HandleTypeDef *pdev);
  */
 int CDC_Printf(USBD_HandleTypeDef *pdev, const char *fmt, ...);
 
+/**
+ * @brief  Check if the GUI has connected (at least one CDC command received).
+ * @retval 1 if connected, 0 otherwise.
+ */
+uint8_t CDC_Parser_IsGUIConnected(void);
+
 #ifdef __cplusplus
 }
 #endif

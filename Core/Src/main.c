@@ -35,6 +35,7 @@
 #include "scheduler.h"
 #include "midi_engine.h"
 #include "display_ui.h"
+#include "qcw.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -154,6 +155,9 @@ int main(void)
   }
 
   MidiEngine_Init();
+
+  /* QCW subsystem: init after CoilDriver (needs OPM timers ready) */
+  QCW_Init();
 
   /* OLED Display: staggered init to prevent 3.3V brownout from inrush.
    * Must be called after MX_SPI2_Init() and MX_GPIO_Init(). */

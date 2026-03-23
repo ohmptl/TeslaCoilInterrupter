@@ -37,6 +37,7 @@ VID = 0x0483
 PID = 0x5741
 BAUD = 115200
 NUM_COILS = 6
+QCW_NUM_CHANNELS = 3
 APP_TITLE = "TC-Interrupter Control Panel"
 POLL_INTERVAL_MS = 500    # Status polling interval
 
@@ -230,6 +231,7 @@ class TCInterrupterGUI:
         self.polling = False
         self._coil_firing = False   # True while a test tone is active
         self._update_pending = None # Scheduled after-id for live updates
+        self.master_mode_vars = [tk.IntVar(value=0) for _ in range(NUM_COILS)]
 
         self._build_ui()
 
@@ -269,8 +271,10 @@ class TCInterrupterGUI:
         nb = ttk.Notebook(self.root)
         nb.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
+        self._build_master_tab(nb)
         self._build_pulse_tab(nb)
         self._build_midi_tab(nb)
+        self._build_qcw_tab(nb)
         self._build_routing_tab(nb)
         self._build_limits_tab(nb)
         self._build_console_tab(nb)
@@ -287,6 +291,57 @@ class TCInterrupterGUI:
 
         self.sched_label = ttk.Label(status_frame, text="")
         self.sched_label.pack(side=tk.RIGHT, padx=10)
+
+    # -- Master Control Tab --
+    def _build_master_tab(self, nb):
+        tab = ttk.Frame(nb, padding=10)
+        nb.add(tab, text="  Master Control  ")
+
+        # Create a grid for the 6 coils
+        # Row 1: Coil 1 ... Coil 3, Row 2: Coil 4 ... Coil 6
+        for i in range(NUM_COILS):
+            frame = ttk.LabelFrame(tab, text=f"Coil {i+1} Mode", padding=8)
+            frame.grid(row=i//3, column=i%3, padx=10, pady=10, sticky="nsew")
+
+            opts = [("Off", 0), ("Pulse", 1), ("MIDI", 2)]
+            
+            # QCW Channel mapping (1-based)
+            qcw_ch = (i // 2) + 1
+            opts.append((f"QCW {qcw_ch}", 3))
+
+            for text, val in opts:
+                ttk.Radiobutton(frame, text=text, variable=self.master_mode_vars[i], 
+                                value=val, command=lambda c=i: self._on_master_mode_change(c)).pack(anchor=tk.W, pady=4)
+
+    def _on_master_mode_change(self, coil_idx):
+        if not self.dev.connected:
+            return
+            
+        mode = self.master_mode_vars[coil_idx].get()
+        ch = coil_idx + 1
+        qcw_ch = (coil_idx // 2) + 1
+
+        # Tell firmware the UI mode for the display
+        self.dev.send(f"MODE {ch} {mode}")
+
+        if mode == 0: # Off
+            self.dev.send(f"DISABLE {ch}")
+            self.dev.send(f"QCW_MODE {qcw_ch} 0")
+        elif mode == 1: # Pulse
+            self.dev.send(f"ENABLE {ch}")
+            self.dev.send(f"QCW_MODE {qcw_ch} 0")
+            # Clear MIDI routing for this coil
+            # (assuming routing defaults to 1:1, user can remap in Routing tab later)
+        elif mode == 2: # MIDI
+            self.dev.send(f"ENABLE {ch}")
+            self.dev.send(f"QCW_MODE {qcw_ch} 0")
+        elif mode == 3: # QCW
+            # QCW mode takes over the pair. Sync the other coil in the UI.
+            other_coil = coil_idx - 1 if coil_idx % 2 != 0 else coil_idx + 1
+            if self.master_mode_vars[other_coil].get() != 3:
+                self.master_mode_vars[other_coil].set(3)
+                self.dev.send(f"MODE {other_coil + 1} 3")
+            self.dev.send(f"QCW_MODE {qcw_ch} 1")
 
     # -- Pulse Tab --
     def _build_pulse_tab(self, nb):
@@ -435,6 +490,96 @@ class TCInterrupterGUI:
             "For single-coil testing, use ROUTEALL to send all channels to coil 1."
         ), justify=tk.LEFT, foreground="gray")
         info.pack(fill=tk.X, padx=8, pady=16)
+
+    # -- QCW Tab --
+    def _build_qcw_tab(self, nb):
+        tab = ttk.Frame(nb, padding=10)
+        nb.add(tab, text="  QCW Studio  ")
+
+        ttk.Label(tab, text="QCW Waveform Generator",
+                  font=("", 11, "bold")).pack(anchor=tk.W, pady=(0, 4))
+        ttk.Label(tab, text=(
+            "Each QCW channel uses 2 fiber outputs (Enable + PWM).\n"
+            "Duty cycle values are 0–1000 (0.1% resolution). "
+            "Ramp times in milliseconds."
+        ), foreground="gray").pack(anchor=tk.W, pady=(0, 8))
+
+        # -- Channel selector + mode toggle --
+        top_frame = ttk.Frame(tab)
+        top_frame.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Label(top_frame, text="QCW Channel:").pack(side=tk.LEFT, padx=(0, 4))
+        self.qcw_ch_var = tk.IntVar(value=1)
+        for ch in range(1, QCW_NUM_CHANNELS + 1):
+            en_coil = ch * 2 - 1
+            pw_coil = ch * 2
+            ttk.Radiobutton(
+                top_frame, text=f"Ch {ch} (Coil {en_coil}+{pw_coil})",
+                variable=self.qcw_ch_var, value=ch
+            ).pack(side=tk.LEFT, padx=8)
+
+        self.qcw_mode_btn = ttk.Button(top_frame, text="Enable QCW Mode",
+                                        command=self._qcw_toggle_mode)
+        self.qcw_mode_btn.pack(side=tk.RIGHT, padx=8)
+        self.qcw_mode_active = [False] * QCW_NUM_CHANNELS
+
+        # -- Envelope parameters --
+        param_frame = ttk.LabelFrame(tab, text="Envelope Parameters", padding=8)
+        param_frame.pack(fill=tk.X, pady=(0, 8))
+
+        param_defs = [
+            ("Tmin1 (start duty)", 100, 0, 1000, "tmin1"),
+            ("Tmax  (peak duty)",  500, 0, 1000, "tmax"),
+            ("Tmin2 (end duty)",     0, 0, 1000, "tmin2"),
+            ("Tramp1 (ramp up ms)", 15, 0, 500,  "tramp1"),
+            ("Tramp2 (ramp dn ms)", 10, 0, 500,  "tramp2"),
+            ("Thold  (hold ms)",     0, 0, 500,  "thold"),
+        ]
+        self.qcw_params = {}
+        for row, (label, default, lo, hi, key) in enumerate(param_defs):
+            ttk.Label(param_frame, text=f"{label}:").grid(
+                row=row, column=0, sticky=tk.W, padx=4, pady=3)
+            var = tk.IntVar(value=default)
+            scale = ttk.Scale(param_frame, from_=lo, to=hi,
+                              variable=var, orient=tk.HORIZONTAL, length=350)
+            scale.grid(row=row, column=1, padx=4, pady=3, sticky=tk.EW)
+            entry = ttk.Entry(param_frame, textvariable=var, width=8)
+            entry.grid(row=row, column=2, padx=4, pady=3)
+            self.qcw_params[key] = var
+            # Redraw envelope preview on change
+            var.trace_add("write", lambda *_: self._qcw_draw_envelope())
+        param_frame.columnconfigure(1, weight=1)
+
+        # -- Envelope preview canvas --
+        preview_frame = ttk.LabelFrame(tab, text="Envelope Preview", padding=4)
+        preview_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+
+        self.qcw_canvas = tk.Canvas(preview_frame, height=150, bg="#1e1e2e")
+        self.qcw_canvas.pack(fill=tk.BOTH, expand=True)
+        self.qcw_canvas.bind("<Configure>", lambda e: self._qcw_draw_envelope())
+
+        # -- Action buttons --
+        btn_frame = ttk.Frame(tab)
+        btn_frame.pack(fill=tk.X, pady=4)
+
+        ttk.Button(btn_frame, text="Send Config",
+                   command=self._qcw_send_config).pack(side=tk.LEFT, padx=8,
+                                                       ipadx=10, ipady=6)
+        self.qcw_fire_btn = ttk.Button(btn_frame, text="⚡ FIRE QCW",
+                                        command=self._qcw_fire)
+        self.qcw_fire_btn.pack(side=tk.LEFT, padx=8, ipadx=20, ipady=8)
+
+        ttk.Button(btn_frame, text="Abort",
+                   command=self._qcw_abort).pack(side=tk.LEFT, padx=8,
+                                                  ipadx=10, ipady=6)
+        ttk.Button(btn_frame, text="Refresh Status",
+                   command=self._qcw_refresh_status).pack(side=tk.RIGHT, padx=8)
+
+        self.qcw_status_label = ttk.Label(btn_frame, text="")
+        self.qcw_status_label.pack(side=tk.RIGHT, padx=8)
+
+        # Initial draw
+        self.root.after(100, self._qcw_draw_envelope)
 
     # -- Routing Tab --
     def _build_routing_tab(self, nb):
@@ -930,6 +1075,197 @@ class TCInterrupterGUI:
         self.console_log.insert(tk.END, text + "\n")
         self.console_log.see(tk.END)
         self.console_log.config(state=tk.DISABLED)
+
+    # -----------------------------------------------------------------------
+    #  QCW Tab Actions
+    # -----------------------------------------------------------------------
+    def _qcw_draw_envelope(self):
+        """Draw the trapezoidal QCW envelope on the preview canvas."""
+        c = self.qcw_canvas
+        c.delete("all")
+        w = c.winfo_width()
+        h = c.winfo_height()
+        if w < 10 or h < 10:
+            return
+
+        pad = 20
+        plot_w = w - 2 * pad
+        plot_h = h - 2 * pad
+
+        try:
+            tmin1  = int(self.qcw_params["tmin1"].get())
+            tmax_v = int(self.qcw_params["tmax"].get())
+            tmin2  = int(self.qcw_params["tmin2"].get())
+            tramp1 = max(int(self.qcw_params["tramp1"].get()), 0)
+            tramp2 = max(int(self.qcw_params["tramp2"].get()), 0)
+            thold  = max(int(self.qcw_params["thold"].get()), 0)
+        except (ValueError, tk.TclError):
+            return
+
+        total_ms = tramp1 + thold + tramp2
+        if total_ms <= 0:
+            total_ms = 1
+
+        def x_of(ms):
+            return pad + int(ms / total_ms * plot_w)
+
+        def y_of(duty):
+            return pad + plot_h - int(duty / 1000 * plot_h)
+
+        # Grid lines
+        for pct in (0, 250, 500, 750, 1000):
+            y = y_of(pct)
+            c.create_line(pad, y, w - pad, y, fill="#44475a", dash=(2, 4))
+            c.create_text(pad - 4, y, text=f"{pct/10:.0f}%",
+                          fill="#6272a4", anchor=tk.E, font=("Consolas", 7))
+
+        # Envelope points
+        pts = [
+            (0,      tmin1),
+            (tramp1, tmax_v),
+            (tramp1 + thold, tmax_v),
+            (total_ms, tmin2),
+        ]
+
+        coords = []
+        for ms, duty in pts:
+            coords.extend([x_of(ms), y_of(duty)])
+
+        # Fill under curve
+        fill_coords = list(coords) + [x_of(total_ms), y_of(0), x_of(0), y_of(0)]
+        c.create_polygon(fill_coords, fill="#50fa7b", stipple="gray25", outline="")
+
+        # Envelope line
+        c.create_line(coords, fill="#50fa7b", width=2)
+
+        # Phase labels
+        mid_ramp1 = tramp1 / 2
+        c.create_text(x_of(mid_ramp1), h - 6, text=f"Ramp Up\n{tramp1}ms",
+                      fill="#8be9fd", font=("Consolas", 7), anchor=tk.S)
+        if thold > 0:
+            mid_hold = tramp1 + thold / 2
+            c.create_text(x_of(mid_hold), h - 6, text=f"Hold\n{thold}ms",
+                          fill="#f1fa8c", font=("Consolas", 7), anchor=tk.S)
+        mid_ramp2 = tramp1 + thold + tramp2 / 2
+        c.create_text(x_of(mid_ramp2), h - 6, text=f"Ramp Dn\n{tramp2}ms",
+                      fill="#ff79c6", font=("Consolas", 7), anchor=tk.S)
+
+        # Dot markers
+        for ms, duty in pts:
+            cx, cy = x_of(ms), y_of(duty)
+            c.create_oval(cx - 3, cy - 3, cx + 3, cy + 3,
+                          fill="#f8f8f2", outline="#50fa7b")
+
+    def _qcw_toggle_mode(self):
+        if not self.dev.connected:
+            messagebox.showwarning("Not Connected", "Connect to the device first.")
+            return
+        ch = self.qcw_ch_var.get()
+        idx = ch - 1
+        new_state = 0 if self.qcw_mode_active[idx] else 1
+        cmd = f"QCW_MODE {ch} {new_state}"
+        resp = self.dev.send(cmd)
+        self._log(f"> {cmd}")
+        self._log(f"< {resp}")
+        if resp and resp.startswith("OK"):
+            self.qcw_mode_active[idx] = bool(new_state)
+            label = "Disable QCW Mode" if new_state else "Enable QCW Mode"
+            self.qcw_mode_btn.config(text=label)
+            self.qcw_status_label.config(
+                text=f"Ch {ch}: QCW {'ON' if new_state else 'OFF'}")
+        else:
+            self.qcw_status_label.config(text=f"Ch {ch}: mode change failed")
+
+    def _qcw_send_config(self):
+        if not self.dev.connected:
+            messagebox.showwarning("Not Connected", "Connect to the device first.")
+            return
+        ch = self.qcw_ch_var.get()
+        try:
+            tmin1  = int(self.qcw_params["tmin1"].get())
+            tmax_v = int(self.qcw_params["tmax"].get())
+            tmin2  = int(self.qcw_params["tmin2"].get())
+            tramp1 = int(self.qcw_params["tramp1"].get())
+            tramp2 = int(self.qcw_params["tramp2"].get())
+            thold  = int(self.qcw_params["thold"].get())
+        except (ValueError, tk.TclError):
+            messagebox.showwarning("Invalid", "Check parameter values")
+            return
+        cmd = f"QCW_CONFIG {ch} {tmin1} {tmax_v} {tmin2} {tramp1} {tramp2} {thold}"
+        resp = self.dev.send(cmd)
+        self._log(f"> {cmd}")
+        self._log(f"< {resp}")
+        if resp and resp.startswith("OK"):
+            self.qcw_status_label.config(text=f"Ch {ch}: config sent")
+        else:
+            self.qcw_status_label.config(text=f"Ch {ch}: config failed")
+
+    def _qcw_fire(self):
+        if not self.dev.connected:
+            messagebox.showwarning("Not Connected", "Connect to the device first.")
+            return
+        ch = self.qcw_ch_var.get()
+        idx = ch - 1
+        if not self.qcw_mode_active[idx]:
+            messagebox.showwarning("QCW Not Active",
+                                   f"Enable QCW mode for Ch {ch} first.")
+            return
+
+        # Always push current slider config to the device before firing
+        try:
+            tmin1  = int(self.qcw_params["tmin1"].get())
+            tmax_v = int(self.qcw_params["tmax"].get())
+            tmin2  = int(self.qcw_params["tmin2"].get())
+            tramp1 = int(self.qcw_params["tramp1"].get())
+            tramp2 = int(self.qcw_params["tramp2"].get())
+            thold  = int(self.qcw_params["thold"].get())
+        except (ValueError, tk.TclError):
+            messagebox.showwarning("Invalid", "Check parameter values")
+            return
+
+        cfg_cmd = f"QCW_CONFIG {ch} {tmin1} {tmax_v} {tmin2} {tramp1} {tramp2} {thold}"
+        cfg_resp = self.dev.send(cfg_cmd)
+        self._log(f"> {cfg_cmd}")
+        self._log(f"< {cfg_resp}")
+        if not (cfg_resp and cfg_resp.startswith("OK")):
+            self.qcw_status_label.config(text=f"Ch {ch}: config failed, fire aborted")
+            return
+
+        cmd = f"QCW_FIRE {ch}"
+        resp = self.dev.send(cmd)
+        self._log(f"> {cmd}")
+        self._log(f"< {resp}")
+        if resp and resp.startswith("OK"):
+            self.qcw_status_label.config(text=f"Ch {ch}: FIRED!")
+        else:
+            self.qcw_status_label.config(text=f"Ch {ch}: fire failed")
+
+    def _qcw_abort(self):
+        if not self.dev.connected:
+            return
+        ch = self.qcw_ch_var.get()
+        cmd = f"QCW_ABORT {ch}"
+        resp = self.dev.send(cmd)
+        self._log(f"> {cmd}")
+        self._log(f"< {resp}")
+        self.qcw_status_label.config(text=f"Ch {ch}: aborted")
+
+    def _qcw_refresh_status(self):
+        if not self.dev.connected:
+            return
+        data = self.dev.send_json("QCW?")
+        if data and "channels" in data:
+            lines = []
+            for entry in data["channels"]:
+                ch = entry.get("ch", "?")
+                active = "ON" if entry.get("active") else "OFF"
+                state_names = ["IDLE", "RAMP_UP", "HOLD", "RAMP_DOWN"]
+                st = entry.get("state", 0)
+                st_name = state_names[st] if st < len(state_names) else f"?{st}"
+                duty = entry.get("duty", 0)
+                lines.append(f"Ch{ch}:{active}/{st_name} duty={duty/10:.1f}%")
+            self.qcw_status_label.config(text="  |  ".join(lines))
+            self._log(f"QCW Status: {lines}")
 
 
 # ---------------------------------------------------------------------------

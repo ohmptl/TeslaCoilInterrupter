@@ -25,6 +25,7 @@
 #include "scheduler.h"
 #include "safety.h"
 #include "coil_driver.h"
+#include "qcw.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -341,6 +342,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
       /* Immediately kill all OPM timers — sub-microsecond response */
       CoilDriver_StopAll();
+      /* Abort any active QCW bursts (drive enable LOW, stop PWM) */
+      QCW_AbortAll();
     }
   }
 }
@@ -354,6 +357,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM7)
   {
     Scheduler_Tick();
+    /* QCW envelope tick — runs after scheduler (same 100 µs cadence) */
+    QCW_Tick(g_sched_us);
   }
 }
 

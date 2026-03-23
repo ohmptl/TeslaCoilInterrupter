@@ -75,6 +75,9 @@ typedef struct
 
   /* Enable */
   uint8_t  enabled;                 /**< 1 = coil output allowed              */
+
+  /* UI Display Mode */
+  uint8_t  ui_mode;                 /**< 0=Off, 1=Pulse, 2=MIDI, 3=QCW        */
 } CoilSchedState_t;
 
 /** Snapshot for CDC telemetry queries. */
@@ -88,6 +91,9 @@ typedef struct
 /* ---------------------------------------------------------------------------*/
 /*                          Public API                                        */
 /* ---------------------------------------------------------------------------*/
+
+/** Global scheduler time in microseconds (wraps every ~71 minutes). */
+extern volatile uint32_t g_sched_us;
 
 /**
  * @brief  Initialize scheduler state, reconfigure TIM7 for 100 µs period.
@@ -150,6 +156,18 @@ void Scheduler_RemoveAllTonesAllCoils(void);
  * @brief  Enable or disable a coil's output.
  */
 void Scheduler_SetCoilEnabled(uint8_t coil_id, uint8_t enabled);
+
+/**
+ * @brief  Set the UI mode for a coil (for display purposes).
+ * @param  coil_id  0-based coil index
+ * @param  mode     0=Off, 1=Pulse, 2=MIDI, 3=QCW
+ */
+void Scheduler_SetUIMode(uint8_t coil_id, uint8_t mode);
+
+/**
+ * @brief  Get the UI mode for a coil.
+ */
+uint8_t Scheduler_GetUIMode(uint8_t coil_id);
 
 /* ---- Status Queries ---- */
 

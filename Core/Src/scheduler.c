@@ -35,7 +35,7 @@ static SchedulerTone_t  g_tones[NUM_COILS][MAX_VOICES_PER_COIL];
 static CoilSchedState_t g_coil_state[NUM_COILS];
 
 /** Global scheduler time in microseconds (wraps every ~71 minutes). */
-static volatile uint32_t g_sched_us = 0;
+volatile uint32_t g_sched_us = 0;
 
 /** Total tick count since scheduler start. */
 static volatile uint32_t g_sched_tick_count = 0;
@@ -244,6 +244,11 @@ int8_t Scheduler_AddTone(uint8_t coil_id, uint8_t midi_note, uint8_t midi_channe
   if (coil_id >= NUM_COILS) return -1;
   if (period_us == 0 || ontime_us == 0) return -1;
 
+  /* Enforce exact UI modes */
+  uint8_t mode = g_coil_state[coil_id].ui_mode;
+  if (mode == 0 || mode == 3) return -1; /* Off or QCW mode -> no tones allowed */
+  if (mode == 1 && midi_note != 0xFF) return -1; /* Pulse mode -> no MIDI notes allowed */
+
   /* Check if this note already exists on this coil (update in place) */
   for (uint8_t v = 0; v < MAX_VOICES_PER_COIL; v++)
   {
@@ -387,3 +392,20 @@ void Scheduler_GetToneInfo(uint8_t coil_id, uint8_t voice_idx, SchedulerTone_t *
   __enable_irq();
 }
 
+void Scheduler_SetUIMode(uint8_t coil_id, uint8_t mode)
+{
+  if (coil_id >= NUM_COILS) return;
+  __disable_irq();
+  g_coil_state[coil_id].ui_mode = mode;
+  __enable_irq();
+}
+
+uint8_t Scheduler_GetUIMode(uint8_t coil_id)
+{
+  if (coil_id >= NUM_COILS) return 0;
+  uint8_t mode;
+  __disable_irq();
+  mode = g_coil_state[coil_id].ui_mode;
+  __enable_irq();
+  return mode;
+}
