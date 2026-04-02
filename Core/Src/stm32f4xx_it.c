@@ -334,7 +334,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   if (GPIO_Pin == ESTOP_BUTTON_Pin)
   {
-    /* Pull-up: pin LOW = pressed (grounded), pin HIGH = released */
+    /* Pull-down + Disconnect Detect: pin LOW = disconnected/cut = E-Stop active, pin HIGH = connected (normal) */
     uint8_t pressed = (HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port,
                                         ESTOP_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
     Safety_EStopSet(pressed);

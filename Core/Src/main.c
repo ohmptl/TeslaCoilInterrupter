@@ -138,7 +138,7 @@ int main(void)
 
   /* SAFETY: Sync E-Stop state to the actual physical button position.
    * This corrects any stale state from transient EXTI edges during boot.
-   * Pull-up: pin LOW = pressed (grounded) = E-Stop active. */
+   * Pull-down + Disconnect Detect: pin LOW = disconnected/cut = E-Stop active. */
   {
     uint8_t btn_pressed = (HAL_GPIO_ReadPin(ESTOP_BUTTON_GPIO_Port,
                                             ESTOP_BUTTON_Pin) == GPIO_PIN_RESET) ? 1U : 0U;
