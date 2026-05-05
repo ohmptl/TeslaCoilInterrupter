@@ -57,7 +57,32 @@ void CoilDriver_Init(void)
   TIM1->BDTR |= TIM_BDTR_MOE;
 
   /*
-   * 3. Force safe idle state on all timers BEFORE enabling outputs.
+   * 3. Disconnect all coil output channels and clear dangerous bits
+   *    BEFORE reconfiguring the safe idle state.
+   *
+   *    CC1E = 0: Disconnect output compare from pin (pin goes inactive).
+   *
+   *    OC1FE (Output Compare Fast Enable): CubeMX sets this for all coil
+   *    timers, but it is DANGEROUS for OPM coils.  When OC1FE = 1, any
+   *    trigger event on TRGI forces the output to the compare level
+   *    (HIGH in PWM Mode 2) regardless of the CNT vs CCR1 comparison.
+   *    On TIM4, ITR0 is internally routed from TIM1 — so firing Coil 0
+   *    (TIM1) can inadvertently trigger TIM4's fast-mode output, driving
+   *    Coil 1's pin (PD12) HIGH.  Clear OC1FE on all coil timers.
+   *
+   *    Also disable slave mode (SMS=0) to ensure no external/internal
+   *    trigger can start or gate the timer unexpectedly.
+   */
+  for (uint8_t i = 0; i < NUM_COILS; i++)
+  {
+    g_tim[i]->CCER &= ~TIM_CCER_CC1E;          /* Disconnect output */
+    g_tim[i]->CCMR1 &= ~TIM_CCMR1_OC1FE;      /* Disable fast mode */
+    if (IS_TIM_SLAVE_INSTANCE(g_tim[i]))
+      g_tim[i]->SMCR &= ~TIM_SMCR_SMS;         /* Disable slave mode */
+  }
+
+  /*
+   * 4. Force safe idle state on all timers BEFORE enabling outputs.
    *    Set CCR1=65535 so PWM2 output is LOW (CNT=0 < 65535 → inactive).
    *    Force UG to transfer preloaded CCR1 into shadow registers.
    *    MUST happen before CC1E is set to avoid any HIGH glitch.
@@ -72,12 +97,26 @@ void CoilDriver_Init(void)
   }
 
   /*
-   * 4. Enable Capture/Compare output channel 1 for all coil timers.
+   * 5. Enable Capture/Compare output channel 1 for all coil timers.
    *    Safe to enable now: CCR1=65535 guarantees PWM2 output is LOW.
    */
   for (uint8_t i = 0; i < NUM_COILS; i++)
   {
     g_tim[i]->CCER |= TIM_CCER_CC1E;
+  }
+
+  /*
+   * 6. Disable Update Interrupt Enable (UIE) for ALL coil timers.
+   *    OPM timers are fire-and-forget — they MUST NOT generate update
+   *    interrupts.  On the STM32F4, several coil timers share IRQ vectors
+   *    with TIM1 (e.g. TIM1_UP_TIM10_IRQn, TIM1_BRK_TIM9_IRQn,
+   *    TIM1_TRG_COM_TIM11_IRQn).  If UIE is left set, TIM1's Update Event
+   *    causes the shared ISR to spuriously service the coil timer — which
+   *    can latch the output pin HIGH or corrupt OPM state.
+   */
+  for (uint8_t i = 0; i < NUM_COILS; i++)
+  {
+    g_tim[i]->DIER &= ~TIM_DIER_UIE;
   }
 }
 
@@ -107,7 +146,8 @@ void CoilDriver_ArmPulse(uint8_t coil_id, uint16_t ontime_us)
   tim->ARR  = (uint32_t)ontime_us;
   tim->CCR1 = 1;
   tim->EGR  = TIM_EGR_UG;    /* Load shadows, reset CNT */
-  tim->SR   = 0;              /* Clear all interrupt flags */
+  tim->SR   = 0;              /* Clear all interrupt flags (including UIF from EGR) */
+  tim->DIER &= ~TIM_DIER_UIE; /* Defensive: never allow update IRQ on OPM timers */
   tim->CR1 |= TIM_CR1_CEN;   /* Start counting → output goes HIGH */
 }
 

@@ -208,12 +208,21 @@ static void QCW_RestoreOPMTimer(uint8_t qcw_ch)
   /* Restore OPM */
   tim->CR1 |= TIM_CR1_OPM;
 
-  /* Restore PWM Mode 2 (as used by standard OPM: HIGH when CNT >= CCR1) */
+  /* Restore PWM Mode 2 (as used by standard OPM: HIGH when CNT >= CCR1).
+   * IMPORTANT: Clear OC1FE (fast mode) — it allows trigger events to force
+   * the output HIGH regardless of the CNT vs CCR1 comparison.  Since TIM4's
+   * ITR0 is internally connected to TIM1, leaving OC1FE set causes TIM1
+   * activity to drive TIM4's output (PD12) HIGH.  Also keep OC1PE for
+   * preload operation. */
   uint32_t ccmr = tim->CCMR1;
-  ccmr &= ~(TIM_CCMR1_OC1M_Msk);
+  ccmr &= ~(TIM_CCMR1_OC1M_Msk | TIM_CCMR1_OC1FE);
   ccmr |= (0x7U << TIM_CCMR1_OC1M_Pos);  /* PWM Mode 2 */
   ccmr |= TIM_CCMR1_OC1PE;
   tim->CCMR1 = ccmr;
+
+  /* Disable slave mode — no internal/external trigger should gate this timer */
+  if (IS_TIM_SLAVE_INSTANCE(tim))
+    tim->SMCR &= ~TIM_SMCR_SMS;
 
   /* Restore ARR to full range, CCR1 to safe idle */
   tim->ARR  = 65535;
@@ -221,6 +230,9 @@ static void QCW_RestoreOPMTimer(uint8_t qcw_ch)
   tim->CNT  = 0;
   tim->EGR  = TIM_EGR_UG;
   tim->SR   = 0;
+
+  /* Disable update interrupt — OPM timers must not generate IRQs */
+  tim->DIER &= ~TIM_DIER_UIE;
 
   /* Ensure CC1 output enabled */
   tim->CCER |= TIM_CCER_CC1E;
@@ -401,8 +413,9 @@ void QCW_Abort(uint8_t qcw_ch)
 
   /* Stop PWM timer */
   TIM_TypeDef *tim = g_pwm_tim[qcw_ch];
-  tim->CR1 &= ~TIM_CR1_CEN;
   tim->CCR1 = 0;
+  tim->EGR  = TIM_EGR_UG;
+  tim->CR1 &= ~TIM_CR1_CEN;
   tim->CNT  = 0;
 
   ch->state        = QCW_STATE_IDLE;
@@ -493,8 +506,10 @@ void QCW_Tick(uint32_t now_us)
 
           /* Deassert enable, stop PWM */
           QCW_SetEnable(i, 0);
-          g_pwm_tim[i]->CR1 &= ~TIM_CR1_CEN;
           g_pwm_tim[i]->CCR1 = 0;
+          g_pwm_tim[i]->EGR = TIM_EGR_UG;
+          g_pwm_tim[i]->CR1 &= ~TIM_CR1_CEN;
+          g_pwm_tim[i]->CNT = 0;
 
           ch->state        = QCW_STATE_IDLE;
           ch->current_duty = 0;

@@ -232,7 +232,9 @@ void TIM1_BRK_TIM9_IRQHandler(void)
 
   /* USER CODE END TIM1_BRK_TIM9_IRQn 0 */
   HAL_TIM_IRQHandler(&htim1);
-  HAL_TIM_IRQHandler(&htim9);
+  /* NOTE: TIM9 (Coil 2) shares this vector but is an OPM fire-and-forget
+   * timer with UIE disabled.  Do NOT call HAL_TIM_IRQHandler(&htim9) here
+   * — doing so caused spurious cross-talk when TIM1 (Coil 0) pulsed. */
   /* USER CODE BEGIN TIM1_BRK_TIM9_IRQn 1 */
 
   /* USER CODE END TIM1_BRK_TIM9_IRQn 1 */
@@ -247,7 +249,9 @@ void TIM1_UP_TIM10_IRQHandler(void)
 
   /* USER CODE END TIM1_UP_TIM10_IRQn 0 */
   HAL_TIM_IRQHandler(&htim1);
-  HAL_TIM_IRQHandler(&htim10);
+  /* NOTE: TIM10 (Coil 3) shares this vector but is an OPM fire-and-forget
+   * timer with UIE disabled.  Do NOT call HAL_TIM_IRQHandler(&htim10) here
+   * — doing so caused Coil 3 to go HIGH when Coil 0 (TIM1) pulsed. */
   /* USER CODE BEGIN TIM1_UP_TIM10_IRQn 1 */
 
   /* USER CODE END TIM1_UP_TIM10_IRQn 1 */
@@ -262,7 +266,9 @@ void TIM1_TRG_COM_TIM11_IRQHandler(void)
 
   /* USER CODE END TIM1_TRG_COM_TIM11_IRQn 0 */
   HAL_TIM_IRQHandler(&htim1);
-  HAL_TIM_IRQHandler(&htim11);
+  /* NOTE: TIM11 (Coil 4) shares this vector but is an OPM fire-and-forget
+   * timer with UIE disabled.  Do NOT call HAL_TIM_IRQHandler(&htim11) here
+   * — doing so caused cross-talk when TIM1 (Coil 0) pulsed. */
   /* USER CODE BEGIN TIM1_TRG_COM_TIM11_IRQn 1 */
 
   /* USER CODE END TIM1_TRG_COM_TIM11_IRQn 1 */

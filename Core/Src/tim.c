@@ -509,7 +509,12 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle)
   else if(timHandle->Instance==TIM4)
   {
   /* USER CODE BEGIN TIM4_MspPostInit 0 */
-
+    /* SAFETY: Disconnect OC output and clear fast mode BEFORE connecting
+     * the pin to AF.  OC1FE (fast mode) allows trigger events to force
+     * the output HIGH regardless of CCR1.  Clearing it before the pin
+     * switches to AF prevents a brief HIGH glitch. */
+    TIM4->CCER  &= ~TIM_CCER_CC1E;
+    TIM4->CCMR1 &= ~TIM_CCMR1_OC1FE;
   /* USER CODE END TIM4_MspPostInit 0 */
 
     __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -518,7 +523,7 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle)
     */
     GPIO_InitStruct.Pin = GPIO_PIN_12;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     GPIO_InitStruct.Alternate = GPIO_AF2_TIM4;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
